@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import asdict
 from typing import Any
 
@@ -7,7 +9,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from src.generator import AnswerGenerator
 from src.knowledge_base import KnowledgeBase
-from src.models import AgentStep, AnswerResult, RetrievedChunk, WebSearchResult
+from src.models import AgentStep, AnswerResult, PlanStepResult, RetrievedChunk, WebSearchResult
 from src.router import LLMRouter
 from src.web_search import WebSearchClient
 
@@ -23,6 +25,52 @@ CONDENSE_USER_PROMPT = """历史对话：
 {question}
 
 独立问题："""
+
+PLANNER_SYSTEM_PROMPT = """你是一个 RAG Agent 的任务规划器。
+你需要把复杂用户目标拆成 2 到 5 个可执行步骤。
+每个步骤必须包含：
+- goal: 这个步骤要完成什么
+- query: 用于检索知识库的查询
+- output: 这个步骤应该产出的中间结果
+
+必须只输出 JSON，不要输出 Markdown。
+JSON 格式：
+{{
+  "task_type": "multi_step",
+  "steps": [
+    {{"goal": "...", "query": "...", "output": "..."}}
+  ]
+}}
+"""
+
+PLANNER_USER_PROMPT = """用户目标：
+{question}
+
+问题意图：
+{intent}
+
+知识库概况：
+{corpus}
+
+请拆解成适合 RAG 检索执行的计划。"""
+
+SYNTHESIS_SYSTEM_PROMPT = """你是一个严谨的 RAG Agent 汇总器。
+你会收到用户原始目标、执行计划、每一步检索到的证据摘要和引用。
+请综合所有步骤结果，产出面向用户的最终答案。
+必须基于证据回答，关键结论后附引用。
+引用必须逐字复制 plan_trace 中的 citation_id，不能缩写、改写或重新组织 citation_id。
+本地引用格式必须保持为 [source#chunk_id]。"""
+
+SYNTHESIS_USER_PROMPT = """用户目标：
+{question}
+
+历史对话：
+{history}
+
+执行计划和中间结果：
+{plan_trace}
+
+请给出最终答案。"""
 
 
 class RAGAgent:
@@ -55,6 +103,16 @@ class RAGAgent:
 
         corpus = self.knowledge_base.corpus_summary()
         steps.append(AgentStep("检查知识库", "当前索引", self._format_corpus(corpus)))
+
+        if self._should_plan(standalone_question, intent) or self._should_plan(question, intent):
+            return self._answer_with_plan(
+                original_question=question,
+                standalone_question=standalone_question,
+                intent=intent,
+                corpus=corpus,
+                chat_history=chat_history,
+                steps=steps,
+            )
 
         retrieved = self.knowledge_base.retrieve(standalone_question)
         steps.append(
@@ -119,6 +177,91 @@ class RAGAgent:
             },
         )
 
+    def _answer_with_plan(
+        self,
+        original_question: str,
+        standalone_question: str,
+        intent: str,
+        corpus: dict[str, Any],
+        chat_history: list[dict[str, str]],
+        steps: list[AgentStep],
+    ) -> AnswerResult:
+        plan = self._make_plan(standalone_question, intent, corpus)
+        steps.append(AgentStep("生成多步执行计划", standalone_question, self._format_plan(plan)))
+
+        plan_results: list[PlanStepResult] = []
+        all_chunks: list[RetrievedChunk] = []
+        for idx, item in enumerate(plan, start=1):
+            query = str(item.get("query") or item.get("goal") or standalone_question)
+            goal = str(item.get("goal") or query)
+            chunks = self.knowledge_base.retrieve(query)
+            summary = self._summarize_step_evidence(goal, chunks)
+            plan_results.append(PlanStepResult(idx, goal, query, chunks, summary))
+            all_chunks.extend(chunks)
+            steps.append(
+                AgentStep(
+                    f"执行计划步骤 {idx}",
+                    f"目标：{goal}\n检索：{query}",
+                    summary,
+                )
+            )
+
+        merged_chunks = self._dedupe_chunks(all_chunks)
+        confidence = self._estimate_confidence(merged_chunks)
+        steps.append(AgentStep("汇总计划证据置信度", "多步检索证据", confidence))
+
+        web_results: list[WebSearchResult] = []
+        if self.router is None:
+            raise RuntimeError("Agent 缺少 Router，请检查初始化逻辑。")
+        web_decision = self.router.decide(
+            question=standalone_question,
+            intent=intent,
+            confidence=confidence,
+            chunks=merged_chunks,
+            web_enabled=self.web_search is not None,
+        )
+        steps.append(AgentStep("Router 决定是否联网", standalone_question, str(web_decision.as_dict())))
+
+        if web_decision.should_search and self.web_search is not None:
+            try:
+                web_results = self.web_search.search(web_decision.search_query, topic=web_decision.topic)
+                steps.append(
+                    AgentStep(
+                        "联网搜索",
+                        web_decision.search_query,
+                        f"获取 {len(web_results)} 条网页证据："
+                        + "，".join(result.title for result in web_results[:3]),
+                    )
+                )
+            except Exception as exc:
+                steps.append(AgentStep("联网搜索失败", web_decision.search_query, str(exc)))
+
+        final_confidence = self._estimate_final_confidence(confidence, web_results)
+        steps.append(AgentStep("估计最终证据置信度", "计划证据 + 联网证据", final_confidence))
+
+        answer = self._synthesize_plan_answer(original_question, plan_results, web_results, chat_history)
+        return AnswerResult(
+            answer=answer,
+            chunks=merged_chunks,
+            web_results=web_results,
+            steps=steps,
+            confidence=final_confidence,
+            diagnostics={
+                "original_question": original_question,
+                "standalone_question": standalone_question,
+                "history_turns": len(chat_history),
+                "intent": intent,
+                "corpus": corpus,
+                "planning_enabled": True,
+                "plan": plan,
+                "plan_results": [result.as_dict() for result in plan_results],
+                "local_confidence": confidence,
+                "web_search_decision": web_decision.as_dict(),
+                "retrieved": [chunk.as_dict() for chunk in merged_chunks],
+                "web_results": [result.as_dict() for result in web_results],
+            },
+        )
+
     def _condense_question(self, question: str, chat_history: list[dict[str, str]]) -> str:
         if not chat_history:
             return question
@@ -144,6 +287,175 @@ class RAGAgent:
             role = "用户" if message.get("role") == "user" else "助手"
             lines.append(f"{role}: {message.get('content', '')}")
         return "\n".join(lines)
+
+    def _should_plan(self, question: str, intent: str) -> bool:
+        lower = question.lower()
+        planning_keywords = [
+            "整理",
+            "总结",
+            "归纳",
+            "对比",
+            "比较",
+            "生成",
+            "草稿",
+            "方案",
+            "计划",
+            "所有",
+            "全部",
+            "综述",
+            "报告",
+            "review",
+            "summarize",
+            "compare",
+            "draft",
+            "plan",
+        ]
+        if any(keyword in lower for keyword in planning_keywords):
+            return True
+        return intent in {"方案对比类问题"} and len(question) >= 18
+
+    def _make_plan(self, question: str, intent: str, corpus: dict[str, Any]) -> list[dict[str, str]]:
+        if self.generator.llm is not None:
+            prompt = ChatPromptTemplate.from_messages(
+                [("system", PLANNER_SYSTEM_PROMPT), ("human", PLANNER_USER_PROMPT)]
+            )
+            chain = prompt | self.generator.llm
+            raw = chain.invoke(
+                {
+                    "question": question,
+                    "intent": intent,
+                    "corpus": self._format_corpus(corpus),
+                }
+            )
+            try:
+                parsed = self._parse_json(str(raw.content))
+                steps = parsed.get("steps", [])
+                if isinstance(steps, list) and steps:
+                    return [self._normalize_plan_step(step, question) for step in steps[:5]]
+            except Exception:
+                pass
+        return self._fallback_plan(question)
+
+    def _fallback_plan(self, question: str) -> list[dict[str, str]]:
+        if any(word in question for word in ["对比", "比较", "区别"]):
+            return [
+                {"goal": "检索相关方案和概念定义", "query": question, "output": "列出候选方案"},
+                {"goal": "提取各方案的优势、限制和适用场景", "query": f"{question} 优势 限制 适用场景", "output": "形成对比要点"},
+                {"goal": "综合证据给出结论", "query": f"{question} 取舍 设计选择", "output": "给出建议"},
+            ]
+        return [
+            {"goal": "检索与目标主题相关的全部核心资料", "query": question, "output": "收集主要证据"},
+            {"goal": "归纳主要方法、模块和设计取舍", "query": f"{question} 方法 模块 取舍", "output": "形成结构化总结"},
+            {"goal": "生成最终草稿或综述答案", "query": f"{question} 综述 草稿 总结", "output": "输出综合结果"},
+        ]
+
+    def _normalize_plan_step(self, step: Any, question: str) -> dict[str, str]:
+        if not isinstance(step, dict):
+            return {"goal": str(step), "query": question, "output": "完成该步骤"}
+        goal = str(step.get("goal") or step.get("name") or question)
+        query = str(step.get("query") or goal or question)
+        output = str(step.get("output") or "完成该步骤")
+        return {"goal": goal, "query": query, "output": output}
+
+    def _format_plan(self, plan: list[dict[str, str]]) -> str:
+        return "\n".join(
+            f"{idx}. {item['goal']}；检索 query：{item['query']}；产出：{item['output']}"
+            for idx, item in enumerate(plan, start=1)
+        )
+
+    def _summarize_step_evidence(self, goal: str, chunks: list[RetrievedChunk]) -> str:
+        if not chunks:
+            return f"目标：{goal}\n未检索到可用证据。"
+        lines = [f"目标：{goal}", f"命中 {len(chunks)} 个证据块。"]
+        for idx, chunk in enumerate(chunks[:3], start=1):
+            preview = chunk.document.page_content[:120].replace("\n", " ")
+            lines.append(
+                f"{idx}. {chunk.source}#{chunk.chunk_id}，重排分={chunk.rerank_score:.3f}，预览：{preview}"
+            )
+        return "\n".join(lines)
+
+    def _dedupe_chunks(self, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
+        by_id: dict[str, RetrievedChunk] = {}
+        for chunk in chunks:
+            key = f"{chunk.source}#{chunk.chunk_id}"
+            existing = by_id.get(key)
+            if existing is None or chunk.rerank_score > existing.rerank_score:
+                by_id[key] = chunk
+        deduped = list(by_id.values())
+        deduped.sort(key=lambda item: item.rerank_score, reverse=True)
+        return deduped[: max(self.knowledge_base.config.rerank_top_k, 6)]
+
+    def _synthesize_plan_answer(
+        self,
+        question: str,
+        plan_results: list[PlanStepResult],
+        web_results: list[WebSearchResult],
+        chat_history: list[dict[str, str]],
+    ) -> str:
+        if self.generator.llm is None:
+            return self._fallback_plan_answer(plan_results)
+        prompt = ChatPromptTemplate.from_messages(
+            [("system", SYNTHESIS_SYSTEM_PROMPT), ("human", SYNTHESIS_USER_PROMPT)]
+        )
+        chain = prompt | self.generator.llm
+        result = chain.invoke(
+            {
+                "question": question,
+                "history": self._format_history(chat_history),
+                "plan_trace": self._format_plan_trace(plan_results, web_results),
+            }
+        )
+        return str(result.content)
+
+    def _format_plan_trace(
+        self, plan_results: list[PlanStepResult], web_results: list[WebSearchResult]
+    ) -> str:
+        sections = []
+        for result in plan_results:
+            lines = [
+                f"步骤 {result.step_id}: {result.goal}",
+                f"query: {result.query}",
+                "evidence:",
+            ]
+            for chunk in result.chunks:
+                citation = f"{chunk.source}#{chunk.chunk_id}"
+                lines.append(
+                    f"- citation_id: {citation}\n"
+                    f"  rerank_score: {chunk.rerank_score:.3f}\n"
+                    f"  content: {chunk.document.page_content}"
+                )
+            sections.append("\n".join(lines))
+        if web_results:
+            web_lines = ["联网搜索证据:"]
+            for idx, item in enumerate(web_results, start=1):
+                web_lines.append(
+                    f"- citation_id: [网页-{idx}: {item.url}]\n"
+                    f"  title: {item.title}\n"
+                    f"  content: {item.content}"
+                )
+            sections.append("\n".join(web_lines))
+        return "\n\n".join(sections)
+
+    def _fallback_plan_answer(self, plan_results: list[PlanStepResult]) -> str:
+        lines = ["我已按多步计划完成检索，结果如下："]
+        for result in plan_results:
+            lines.append(f"\n{result.step_id}. {result.goal}")
+            for chunk in result.chunks[:2]:
+                citation = f"{chunk.source}#{chunk.chunk_id}"
+                preview = chunk.document.page_content[:160].replace("\n", " ")
+                lines.append(f"- {preview} [{citation}]")
+        return "\n".join(lines)
+
+    def _parse_json(self, text: str) -> dict[str, Any]:
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`")
+            cleaned = cleaned.removeprefix("json").strip()
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("未找到 JSON 对象")
+        return json.loads(cleaned[start : end + 1])
 
     def _analyze_intent(self, question: str) -> str:
         lower = question.lower()

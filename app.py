@@ -18,6 +18,339 @@ from src.web_search import WebSearchClient
 st.set_page_config(page_title="智能体 RAG 简历项目", page_icon="RAG", layout="wide")
 
 
+def inject_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --app-bg: #f5f7fb;
+            --panel-bg: #ffffff;
+            --text-main: #202635;
+            --text-soft: #667085;
+            --text-muted: #98a2b3;
+            --line: #e3e8ef;
+            --accent: #e5484d;
+            --accent-soft: #fff3f3;
+            --teal: #0f766e;
+            --blue-soft: #edf4ff;
+        }
+
+        html, body, .stApp, [class*="css"] {
+            font-family: "Inter", "Source Han Sans SC", "Noto Sans CJK SC", "Microsoft YaHei",
+                "PingFang SC", "Segoe UI", sans-serif;
+        }
+
+        .stApp {
+            background: var(--app-bg);
+            color: var(--text-main);
+        }
+
+        header[data-testid="stHeader"] {
+            background: rgba(245, 247, 251, 0.86);
+            backdrop-filter: blur(10px);
+        }
+
+        .block-container {
+            max-width: 1320px;
+            padding: 1.35rem 2.25rem 2.5rem;
+        }
+
+        [data-testid="stSidebar"] {
+            background: #eaf0f7;
+            border-right: 1px solid #d6dee9;
+        }
+
+        [data-testid="stSidebar"] > div:first-child {
+            padding-top: 1.4rem;
+        }
+
+        [data-testid="stSidebar"] h2 {
+            font-size: 1.05rem;
+            line-height: 1.35;
+            letter-spacing: 0;
+            color: #1f2937;
+            margin-bottom: 0.75rem;
+        }
+
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] .stMarkdown {
+            font-size: 0.88rem;
+            color: #475467;
+        }
+
+        .app-hero {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 2rem;
+            padding: 1.1rem 0 1.15rem;
+            border-bottom: 1px solid var(--line);
+            margin-bottom: 0.8rem;
+        }
+
+        .app-kicker {
+            color: var(--accent);
+            font-size: 0.78rem;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 0.35rem;
+        }
+
+        .app-title {
+            color: var(--text-main);
+            font-size: clamp(2.15rem, 3vw, 3.35rem);
+            line-height: 1.08;
+            font-weight: 820;
+            letter-spacing: 0;
+            margin: 0;
+        }
+
+        .app-subtitle {
+            color: var(--text-soft);
+            font-size: 0.98rem;
+            line-height: 1.65;
+            margin-top: 0.72rem;
+            max-width: 760px;
+        }
+
+        .hero-pills {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 0.45rem;
+            max-width: 360px;
+        }
+
+        .hero-pill {
+            color: #344054;
+            background: #ffffff;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            padding: 0.38rem 0.62rem;
+            font-size: 0.78rem;
+            font-weight: 650;
+            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+        }
+
+        h1, h2, h3 {
+            letter-spacing: 0 !important;
+        }
+
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 1.35rem;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .stTabs [data-baseweb="tab"] {
+            padding: 0.7rem 0.1rem 0.78rem;
+            font-size: 0.94rem;
+            color: #4b5563;
+            height: auto;
+        }
+
+        .stTabs [aria-selected="true"] {
+            color: var(--accent) !important;
+            font-weight: 650;
+        }
+
+        .stButton > button,
+        [data-testid="stFileUploaderDropzone"] button {
+            border-radius: 8px;
+            font-weight: 600;
+        }
+
+        .stTextInput input,
+        textarea,
+        [data-testid="stChatInput"] textarea {
+            border-radius: 10px !important;
+            border-color: #d9e0ea !important;
+            background: #ffffff !important;
+            box-shadow: none !important;
+            font-size: 0.96rem !important;
+        }
+
+        [data-testid="stChatInput"] {
+            background: transparent;
+        }
+
+        [data-testid="stChatInput"] > div {
+            border-radius: 10px !important;
+            border: 1px solid #d9e0ea !important;
+            background: #ffffff !important;
+            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04) !important;
+        }
+
+        .stChatMessage {
+            background: var(--panel-bg);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 1rem 1.15rem;
+            box-shadow: 0 10px 24px rgba(16, 24, 40, 0.045);
+        }
+
+        .stChatMessage [data-testid="stMarkdownContainer"] {
+            color: #243044;
+            font-size: 0.98rem;
+            line-height: 1.78;
+        }
+
+        .stChatMessage [data-testid="stMarkdownContainer"] h1 {
+            font-size: 1.16rem !important;
+            line-height: 1.35 !important;
+            margin: 0.7rem 0 0.35rem !important;
+        }
+
+        .stChatMessage [data-testid="stMarkdownContainer"] h2 {
+            font-size: 1.08rem !important;
+            line-height: 1.4 !important;
+            margin: 0.65rem 0 0.3rem !important;
+        }
+
+        .stChatMessage [data-testid="stMarkdownContainer"] h3 {
+            font-size: 1rem !important;
+            line-height: 1.45 !important;
+            margin: 0.55rem 0 0.25rem !important;
+        }
+
+        .stChatMessage [data-testid="stMarkdownContainer"] ul {
+            padding-left: 1.1rem;
+        }
+
+        .stChatMessage [data-testid="stMarkdownContainer"] li {
+            margin: 0.35rem 0;
+            padding-left: 0.1rem;
+        }
+
+        code {
+            border-radius: 6px;
+            padding: 0.1rem 0.35rem;
+            color: #047857;
+            background: #eef8f3;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            font-size: 0.86em;
+        }
+
+        .stAlert {
+            border-radius: 10px;
+            border: 1px solid #cfe2ff;
+            background: var(--blue-soft);
+        }
+
+        div[data-testid="stExpander"] {
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: var(--panel-bg);
+            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.035);
+        }
+
+        [data-testid="stDataFrame"] {
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.035);
+        }
+
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 0.48rem;
+            margin: 1.2rem 0 0.62rem;
+            font-size: 0.95rem;
+            font-weight: 760;
+            color: var(--text-main);
+        }
+
+        .section-title::before {
+            content: "";
+            width: 0.42rem;
+            height: 0.42rem;
+            border-radius: 999px;
+            background: var(--accent);
+            box-shadow: 0 0 0 4px var(--accent-soft);
+        }
+
+        .config-row {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.34rem 0;
+            border-bottom: 1px solid rgba(203, 213, 225, 0.72);
+            font-size: 0.84rem;
+        }
+
+        .config-row span:first-child {
+            color: #667085;
+            flex: 0 0 auto;
+        }
+
+        .config-row code {
+            text-align: right;
+            line-height: 1.45;
+            color: var(--teal);
+            background: rgba(255, 255, 255, 0.74);
+            border: 1px solid rgba(226, 232, 240, 0.9);
+        }
+
+        @media (max-width: 960px) {
+            .app-hero {
+                display: block;
+            }
+
+            .hero-pills {
+                justify-content: flex-start;
+                margin-top: 1rem;
+            }
+
+            .block-container {
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_config_row(label: str, value: str) -> None:
+    st.markdown(
+        f'<div class="config-row"><span>{label}</span><code>{value}</code></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_section_title(title: str) -> None:
+    st.markdown(f'<div class="section-title">{title}</div>', unsafe_allow_html=True)
+
+
+def render_header() -> None:
+    st.markdown(
+        """
+        <section class="app-hero">
+            <div>
+                <div class="app-kicker">RAG Agent Portfolio</div>
+                <h1 class="app-title">智能体 RAG 简历项目</h1>
+                <div class="app-subtitle">
+                    面向大模型应用算法工程师的端到端演示：混合检索、重排、引用生成、多轮问答与可观测 Agent 轨迹。
+                </div>
+            </div>
+            <div class="hero-pills">
+                <span class="hero-pill">FAISS</span>
+                <span class="hero-pill">BM25</span>
+                <span class="hero-pill">BGE Reranker</span>
+                <span class="hero-pill">Streamlit</span>
+                <span class="hero-pill">DeepSeek Ready</span>
+            </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 @st.cache_resource(show_spinner=False)
 def get_runtime(config_hash: str) -> tuple[KnowledgeBase, RAGAgent]:
     config = load_config()
@@ -45,14 +378,14 @@ def config_signature() -> str:
 
 config = load_config()
 kb, agent = get_runtime(config_signature())
+inject_styles()
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
 
-st.title("智能体 RAG 简历项目")
-st.caption("LangChain + Streamlit + FAISS + BM25 + BGE reranker + 多轮对话 + 联网补充检索 + 可观测 Agent 轨迹")
+render_header()
 
 with st.sidebar:
     st.header("知识库")
@@ -80,18 +413,18 @@ with st.sidebar:
 
     st.divider()
     st.header("运行配置")
-    st.write(f"LLM 提供方：`{config.llm_provider}`")
-    st.write(f"LLM 模型：`{config.llm_model}`")
-    st.write(f"Embedding 模型：`{config.embedding_model}`")
-    st.write(f"重排模式：`{config.reranker_mode}`")
-    st.write(f"重排模型：`{config.reranker_model}`")
-    st.write(f"生成模式：`{config.generation_mode}`")
-    st.write(f"Router 模式：`{config.router_mode}`")
-    st.write(f"联网搜索：`{'开启' if config.web_search_enabled else '关闭'}`")
+    render_config_row("LLM 提供方", config.llm_provider)
+    render_config_row("LLM 模型", config.llm_model)
+    render_config_row("Embedding", config.embedding_model)
+    render_config_row("重排模式", config.reranker_mode)
+    render_config_row("重排模型", config.reranker_model)
+    render_config_row("生成模式", config.generation_mode)
+    render_config_row("Router", config.router_mode)
+    render_config_row("联网搜索", "开启" if config.web_search_enabled else "关闭")
     if config.web_search_enabled:
-        st.write(f"搜索提供方：`{config.web_search_provider}`")
-        st.write(f"搜索条数：`{config.web_search_max_results}`")
-    st.write(f"召回 Top-k：`{config.top_k}`，重排后保留：`{config.rerank_top_k}`")
+        render_config_row("搜索提供方", config.web_search_provider)
+        render_config_row("搜索条数", str(config.web_search_max_results))
+    render_config_row("召回 / 重排", f"{config.top_k} / {config.rerank_top_k}")
 
 tab_chat, tab_index, tab_eval = st.tabs(["多轮问答", "索引诊断", "检索评估"])
 
@@ -120,7 +453,7 @@ with tab_chat:
     if result is not None:
         left, right = st.columns([1.15, 0.85])
         with left:
-            st.subheader("本地检索证据")
+            render_section_title("本地检索证据")
             rows = [chunk.as_dict() for chunk in result.chunks]
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
             for idx, chunk in enumerate(result.chunks, start=1):
@@ -128,7 +461,7 @@ with tab_chat:
                     st.write(chunk.document.page_content)
                     st.json(chunk.document.metadata)
 
-            st.subheader("联网搜索证据")
+            render_section_title("联网搜索证据")
             if result.web_results:
                 st.dataframe(
                     pd.DataFrame([item.as_dict() for item in result.web_results]),
@@ -143,16 +476,16 @@ with tab_chat:
                 st.caption("本轮没有使用联网搜索，或联网搜索未返回结果。")
 
         with right:
-            st.subheader("Agent 执行轨迹")
+            render_section_title("Agent 执行轨迹")
             for step in result.steps:
                 with st.expander(step.tool, expanded=True):
                     st.caption(step.input)
                     st.write(step.output)
-            st.subheader("诊断 JSON")
+            render_section_title("诊断 JSON")
             st.json({"steps": serialize_steps(result.steps), "diagnostics": result.diagnostics})
 
 with tab_index:
-    st.subheader("语料概览")
+    render_section_title("语料概览")
     summary = kb.corpus_summary()
     st.metric("文本块数量", summary["chunks"])
     st.metric("平均字符数 / 文本块", summary["avg_chars"])
@@ -163,14 +496,14 @@ with tab_index:
         hide_index=True,
     )
 
-    st.subheader("检索调试器")
+    render_section_title("检索调试器")
     debug_query = st.text_input("调试查询", value="混合检索 重排")
     if st.button("调试检索"):
         chunks = kb.search(debug_query)
         st.dataframe(pd.DataFrame([chunk.as_dict() for chunk in chunks]), use_container_width=True, hide_index=True)
 
 with tab_eval:
-    st.subheader("检索冒烟评估")
+    render_section_title("检索冒烟评估")
     st.write("这里内置的是很小的启动评估集。确定你的知识库领域后，应替换成带标准答案的领域问题集。")
     if st.button("运行检索评估"):
         metrics = evaluate_retrieval(kb)

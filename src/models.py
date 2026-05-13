@@ -61,6 +61,24 @@ class AgentStep:
 
 
 @dataclass
+class PlanStepResult:
+    step_id: int
+    goal: str
+    query: str
+    chunks: list[RetrievedChunk]
+    summary: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "step_id": self.step_id,
+            "goal": self.goal,
+            "query": self.query,
+            "summary": self.summary,
+            "chunks": [chunk.as_dict() for chunk in self.chunks],
+        }
+
+
+@dataclass
 class AnswerResult:
     answer: str
     chunks: list[RetrievedChunk]

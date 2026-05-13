@@ -72,17 +72,21 @@ class AnswerGenerator:
             for idx, chunk in enumerate(chunks, start=1):
                 citation = f"{chunk.source}#{chunk.chunk_id}"
                 lines.append(
-                    f"[本地-{idx}] 引用={citation} "
-                    f"重排分={chunk.rerank_score:.3f}\n{chunk.document.page_content}"
+                    f"本地证据 {idx}\n"
+                    f"citation_id: {citation}\n"
+                    f"rerank_score: {chunk.rerank_score:.3f}\n"
+                    f"content:\n{chunk.document.page_content}"
                 )
         if web_results:
             lines.append("## 联网搜索证据")
             for idx, result in enumerate(web_results, start=1):
                 lines.append(
-                    f"[网页-{idx}] 标题={result.title}\n"
-                    f"URL={result.url}\n"
-                    f"搜索分={result.score:.3f}\n"
-                    f"摘要={result.content}"
+                    f"网页证据 {idx}\n"
+                    f"citation_id: [网页-{idx}: {result.url}]\n"
+                    f"title: {result.title}\n"
+                    f"url: {result.url}\n"
+                    f"search_score: {result.score:.3f}\n"
+                    f"content:\n{result.content}"
                 )
         return "\n\n".join(lines)
 
@@ -107,13 +111,13 @@ class AnswerGenerator:
             sentences = re.split(r"(?<=[。.!?！？])\s+|\n+", chunk.document.page_content)
             best = self._pick_best_sentence(sentences, query_terms)
             if best:
-                selected_sentences.append(f"{best} [{chunk.source}#{chunk.chunk_id}]")
+                selected_sentences.append(f"{self._normalize_display_sentence(best)} [{chunk.source}#{chunk.chunk_id}]")
 
         for idx, result in enumerate(web_results, start=1):
             sentences = re.split(r"(?<=[。.!?！？])\s+|\n+", result.content)
             best = self._pick_best_sentence(sentences, query_terms)
             if best:
-                selected_sentences.append(f"{best} [网页-{idx}: {result.url}]")
+                selected_sentences.append(f"{self._normalize_display_sentence(best)} [网页-{idx}: {result.url}]")
 
         evidence = "\n".join(f"- {sentence}" for sentence in selected_sentences[:6])
         return (
@@ -124,11 +128,25 @@ class AnswerGenerator:
         )
 
     def _pick_best_sentence(self, sentences: list[str], query_terms: set[str]) -> str:
-        ranked = sorted(
-            sentences,
-            key=lambda sentence: len(
-                query_terms.intersection(set(re.findall(r"[\w\u4e00-\u9fff]+", sentence.lower())))
-            ),
-            reverse=True,
-        )
+        candidates = [sentence for sentence in sentences if self._is_content_sentence(sentence)]
+        ranked = sorted(candidates, key=lambda sentence: self._sentence_score(sentence, query_terms), reverse=True)
         return next((sentence.strip() for sentence in ranked if sentence.strip()), "")
+
+    def _normalize_display_sentence(self, sentence: str) -> str:
+        cleaned = re.sub(r"^\s{0,3}#{1,6}\s+", "", sentence.strip())
+        cleaned = re.sub(r"^\s*[-*+]\s+", "", cleaned)
+        cleaned = re.sub(r"^\s*\d+[.)]\s+", "", cleaned)
+        return cleaned
+
+    def _is_content_sentence(self, sentence: str) -> bool:
+        text = sentence.strip()
+        if not text:
+            return False
+        if re.match(r"^\s{0,3}#{1,6}\s+", text):
+            return False
+        return len(re.findall(r"[\w\u4e00-\u9fff]", text)) >= 18
+
+    def _sentence_score(self, sentence: str, query_terms: set[str]) -> tuple[int, int]:
+        tokens = set(re.findall(r"[\w\u4e00-\u9fff]+", sentence.lower()))
+        overlap = len(query_terms.intersection(tokens))
+        return overlap, min(len(sentence), 220)

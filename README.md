@@ -1,6 +1,6 @@
 # 智能体 RAG 简历项目
 
-这是一个面向“大模型应用算法工程师”求职展示的端到端 RAG + Agent 项目。项目使用 LangChain 和 Streamlit 构建，重点展示从知识库构建、混合检索、重排、引用生成到可观测 Agent 轨迹的完整工程能力。
+这是一个面向“大模型应用算法工程师”求职展示的端到端 RAG + Agent 项目。项目使用 LangChain 和 Streamlit 构建，重点展示从知识库构建、混合检索、重排、引用生成、Plan-and-Execute 多步任务规划到可观测 Agent 轨迹的完整工程能力。
 
 ## 快速启动
 
@@ -91,12 +91,29 @@ ROUTER_FORCE_WEB_ON_FRESHNESS=true
 
 如果想节省 LLM 调用成本，可以改成 `ROUTER_MODE=rules`，此时只用规则和关键词路由。
 
+## Plan-and-Execute Agent
+
+普通问答会走快速 RAG 链路：问题改写、意图识别、本地混合检索、重排、置信度估计、Router 决策和答案生成。
+
+当用户提出更复杂的目标时，例如“整理所有资料、总结主要方法、生成综述草稿”或“对比多种方案并生成面试讲解稿”，Agent 会触发轻量 Plan-and-Execute：
+
+1. 生成多步执行计划。
+2. 为每个步骤构造检索 query。
+3. 逐步检索本地知识库并记录证据。
+4. 汇总多步证据置信度。
+5. 必要时通过 Router 判断是否联网补充。
+6. 基于所有步骤的证据生成最终回答。
+
+UI 的 Agent 执行轨迹会展示“生成多步执行计划”和每个“执行计划步骤”，用于区分普通 chatbot 和具备任务规划能力的 RAG Agent。
+
 ## 项目亮点
 
 - 基于 LangChain 的文档加载、切分、Embedding、FAISS 向量库和 Prompt 链路。
 - 混合检索：向量语义检索 + BM25 关键词检索。
 - 默认启用真实 BGE Cross-Encoder reranker，MMR 仅作为网络或性能受限时的降级选项。
-- Agent 式工具编排：问题意图分析、知识库检查、检索重排、置信度估计。
+- Agent 式工具编排：问题意图分析、知识库检查、检索重排、置信度估计、Router 决策。
+- Plan-and-Execute 多步任务规划：复杂目标会先拆解计划，再逐步检索和综合生成。
+- 可追溯引用：本地证据使用 `[source#chunk_id]`，便于从答案跳回证据表和文本块。
 - UI 中展示引用、检索分数、重排分数、Agent 执行轨迹和诊断 JSON。
 - 支持多轮对话：历史对话会参与追问改写、检索和最终回答生成。
 - 本地证据不足或问题需要时效信息时，可自动调用联网搜索补充证据。
@@ -109,9 +126,10 @@ ROUTER_FORCE_WEB_ON_FRESHNESS=true
 2. 配置 `DEEPSEEK_API_KEY`，把 `GENERATION_MODE` 改成 `deepseek`。
 3. 保持 `RERANKER_MODE=cross_encoder` 演示真实 rerank；如果本地下载模型失败，再临时降级为 `mmr`。
 4. 替换为你真正想展示的领域知识库。
-5. 增加 20 到 50 条带标准来源的检索评估问题。
-6. 调整 chunk 大小、混合检索权重、rerank 模式和 prompt。
-7. 增加 query rewrite、多路召回、LangGraph 工作流或线上监控。
+5. 用固定问题集验证 DeepSeek 回答质量、引用准确性和 Plan-and-Execute 触发效果。
+6. 增加 20 到 50 条带标准来源的检索评估问题。
+7. 调整 chunk 大小、混合检索权重、rerank 模式和 prompt。
+8. 增加 query rewrite、多路召回、LangGraph 工作流或线上监控。
 
 ## 当前注意事项
 
@@ -119,3 +137,4 @@ ROUTER_FORCE_WEB_ON_FRESHNESS=true
 - 如果依赖安装失败，优先检查 pip 源、代理和 Hugging Face 模型下载网络。
 - `local_fallback` 不是最终质量路径，它用于保证没有 API key 时仍能验证完整工程链路。
 - 当前代码和文档已统一为 UTF-8 中文文本，并通过 Python 静态编译检查。
+- 当前 Plan-and-Execute 已完成烟测；后续建议补自动化测试，防止复杂任务规划链路回退成单步问答。

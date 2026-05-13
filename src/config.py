@@ -36,6 +36,7 @@ class AppConfig:
     embedding_device: str = "cpu"
     reranker_mode: str = "cross_encoder"
     reranker_model: str = "BAAI/bge-reranker-base"
+    reranker_local_files_only: bool = True
     web_search_enabled: bool = False
     web_search_provider: str = "tavily"
     tavily_api_key: str | None = None
@@ -87,6 +88,7 @@ def load_config() -> AppConfig:
         embedding_device=os.getenv("EMBEDDING_DEVICE", "cpu"),
         reranker_mode=os.getenv("RERANKER_MODE", "cross_encoder"),
         reranker_model=os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base"),
+        reranker_local_files_only=_env_bool("RERANKER_LOCAL_FILES_ONLY", True),
         web_search_enabled=_env_bool("WEB_SEARCH_ENABLED", False),
         web_search_provider=os.getenv("WEB_SEARCH_PROVIDER", "tavily").lower(),
         tavily_api_key=os.getenv("TAVILY_API_KEY") or None,

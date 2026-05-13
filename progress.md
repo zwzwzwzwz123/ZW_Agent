@@ -4,7 +4,7 @@
 
 构建一个用于求职“大模型应用算法工程师”岗位的作品级 RAG + Agent 项目。
 
-项目不是普通 PDF 聊天 demo，而是要体现算法理解和工程落地能力：文档接入、文本切分、Embedding、FAISS 向量检索、BM25 关键词检索、混合召回、重排、基于证据的回答、引用、Agent 执行轨迹、检索诊断和评估。
+项目不是普通 PDF 聊天 demo，而是要体现算法理解和工程落地能力：文档接入、文本切分、Embedding、FAISS 向量检索、BM25 关键词检索、混合召回、重排、基于证据的回答、可追溯引用、Agent 执行轨迹、Plan-and-Execute 多步任务规划、检索诊断和评估。
 
 ## 当前架构
 
@@ -15,11 +15,11 @@
 3. `knowledge_base`：构建并持久化 FAISS 向量索引和 BM25 关键词索引。
 4. `knowledge_base.search`：执行向量召回和关键词召回，归一化分数并加权融合。
 5. `reranker`：默认使用 BGE Cross-Encoder 真实 reranker；MMR 仅作为性能或下载受限时的降级选项。
-6. `agent`：分析问题意图、检查知识库、检索证据、估计置信度，并调用答案生成器。
+6. `agent`：分析问题意图、检查知识库、检索证据、估计置信度；对复杂目标触发轻量 Plan-and-Execute，先生成计划，再逐步检索和综合回答。
 7. `generator`：支持 DeepSeek v4 / OpenAI 兼容模型；没有 API key 时使用本地抽取式 fallback。
 8. `web_search`：可选 Tavily 联网搜索工具，本地证据不足或问题需要时效信息时补充网页证据。
 9. `router`：规则兜底 + LLM Router，决定是否联网、搜索什么 query、偏好什么来源。
-10. `app.py`：Streamlit Web UI，支持建库、问答、证据查看、联网证据查看、Agent 轨迹、索引诊断和检索评估。
+10. `app.py`：Streamlit Web UI，支持建库、问答、证据查看、联网证据查看、Agent 轨迹、索引诊断、检索评估，并已进行基础视觉美化。
 
 ## DeepSeek v4 适配状态
 
@@ -83,8 +83,8 @@ DEEPSEEK_REASONING_EFFORT=high
 - `src/web_search.py`：Tavily 联网搜索工具，以及是否联网的路由判断。
 - `src/router.py`：LLM Router。模糊场景下由模型输出结构化联网决策，规则负责强制兜底。
 - `src/prompts.py`：中文系统提示词和回答提示词。
-- `src/agent.py`：透明 Agent 控制器和执行轨迹。
-- `src/models.py`：检索结果、Agent 步骤、最终回答的数据结构。
+- `src/agent.py`：透明 Agent 控制器、普通 RAG 问答路径、Plan-and-Execute 多步规划执行路径和执行轨迹。
+- `src/models.py`：检索结果、Agent 步骤、PlanStepResult、最终回答的数据结构。
 - `src/evaluation.py`：启动版检索评估集和指标计算。
 - `tests/test_document_loader.py`：文档加载与切分冒烟测试。
 
@@ -103,11 +103,15 @@ DEEPSEEK_REASONING_EFFORT=high
 - 已完成透明 Agent 控制器和执行轨迹展示。
 - 已完成多轮对话支持：UI 保存历史，Agent 会把追问改写成独立问题，历史对话会参与检索和生成。
 - 已完成 DeepSeek v4 / OpenAI 兼容生成模式和本地抽取式 fallback。
+- 已完成 DeepSeek 模式实测，真实 LLM 回答、引用和置信度展示链路可用。
+- 已优化引用格式：LLM 上下文显式提供 `citation_id`，回答应使用 `[source#chunk_id]`，避免使用 `[本地-1]` 这类临时编号。
+- 已完成轻量 Plan-and-Execute：复杂任务会生成多步执行计划，逐步检索证据，并在 Agent 轨迹中展示“生成多步执行计划”和多个“执行计划步骤”。
 - 已完成可选 Tavily 联网搜索工具。
 - 已完成“规则兜底 + LLM Router”的高级工具路由逻辑。
 - 已完成 Router 结构化决策展示。
 - 已完成 UI 中联网搜索证据展示。
 - 已完成 Streamlit UI。
+- 已完成 Streamlit UI 基础美化：自定义项目头、侧边栏配置展示、聊天卡片、证据区和诊断区样式调整。
 - 已完成命令行建库脚本。
 - 已完成启动版检索评估。
 - 已删除未使用的旧版本地向量索引文件，主链路统一使用 FAISS。
@@ -115,22 +119,27 @@ DEEPSEEK_REASONING_EFFORT=high
 
 ## 下一步计划
 
-1. 在网络正常的环境安装依赖并完整启动项目。
-2. 运行 `python scripts\build_index.py` 构建索引。
-3. 运行 `streamlit run app.py` 验证 Web UI 和多轮对话。
-4. 配置 `DEEPSEEK_API_KEY`，把 `GENERATION_MODE` 改为 `deepseek`，验证真实 LLM 回答。
-5. 如需联网搜索，配置 `TAVILY_API_KEY`，并设置 `WEB_SEARCH_ENABLED=true`。
-6. 确定真正的知识库领域，并替换示例文档。
-7. 构建 20 到 50 条领域检索评估问题，记录期望命中文档或文本块。
-8. 增加 query rewrite、多查询召回或 HyDE。
-9. 增加更系统的日志、缓存、耗时统计和错误分析。
-10. 熟悉基础链路后，可考虑迁移到 LangGraph 展示更复杂的 Agent 工作流。
+1. 为 Plan-and-Execute 路径补充自动化测试，锁定复杂任务会触发“生成多步执行计划”和多个执行步骤。
+2. 用 8 到 10 个固定问题测试 DeepSeek 模式，记录回答质量、引用准确性、证据命中情况和失败类型。
+3. 构建 20 到 50 条领域检索评估问题，记录期望命中文档或文本块。
+4. 确定真正的知识库领域，并替换或扩展示例文档。
+5. 如需联网搜索，配置 `TAVILY_API_KEY`，并设置 `WEB_SEARCH_ENABLED=true`，验证时效问题和低置信度问题的联网补充效果。
+6. 优化长引用的展示方式：可考虑答案中显示短引用编号，证据区维护编号到 `source#chunk_id` 的映射。
+7. 增加 query rewrite、多查询召回或 HyDE，提高复杂问题的召回覆盖。
+8. 增加更系统的日志、缓存、耗时统计和错误分析，尤其记录规划、检索、重排、生成各阶段耗时。
+9. 继续打磨 Streamlit UI，使其更接近作品级演示界面。
+10. 后续可考虑迁移到 LangGraph，展示更标准的 Plan-and-Execute / ReAct 工作流。
 
 ## 当前验证状态
 
-- 已运行 `python -m compileall app.py src eval_retrieval.py scripts tests`，静态编译通过。
-- 当前环境执行 `python -m pip install -r requirements.txt` 时被代理/网络拦截，错误为 `ProxyError: Cannot connect to proxy`，因此尚未在本机完成依赖安装、建库和 Streamlit 启动验证。
-- 该阻塞属于环境网络问题，不是当前代码语法问题；网络恢复后优先运行 `pip install -r requirements.txt`、`python scripts\build_index.py`、`streamlit run app.py`。
+- 已在 `agent` conda 环境中完成依赖补齐和首次跑通。
+- 已运行 `python scripts\build_index.py`，索引构建成功：2 个文件、2 个原始文档、4 个文本块。
+- 已运行 Streamlit Web UI，并验证可以正常问答。
+- 已配置并验证 DeepSeek 模式，真实 LLM 回答可用。
+- 已运行 `python -m compileall app.py src`，静态编译通过。
+- 已运行 `python -m pytest -q`，当前 3 个测试通过。
+- 已用复杂任务烟测 Plan-and-Execute：`planning_enabled=True`，`plan_len=4`，Agent 轨迹包含“生成多步执行计划”和“执行计划步骤 1-4”。
+- 当前仍会出现非阻塞 warning：`jieba` 的 `pkg_resources is deprecated` 提醒，以及 Hugging Face 未设置 `HF_TOKEN` 的限速提醒。
 
 ## 典型问题与面试回答
 

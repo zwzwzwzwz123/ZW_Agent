@@ -25,7 +25,11 @@ class Reranker:
         self.config = config
         self.cross_encoder: CrossEncoder | None = None
         if config.reranker_mode == "cross_encoder":
-            self.cross_encoder = CrossEncoder(config.reranker_model, max_length=512)
+            self.cross_encoder = CrossEncoder(
+                config.reranker_model,
+                max_length=512,
+                local_files_only=config.reranker_local_files_only,
+            )
         self.embeddings = build_embeddings(config) if config.reranker_mode == "mmr" else None
 
     def rerank(self, query: str, chunks: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:
