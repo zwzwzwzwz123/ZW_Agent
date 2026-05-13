@@ -13,6 +13,12 @@ python scripts\build_index.py
 streamlit run app.py
 ```
 
+如果你的终端用模块方式运行，也可以使用：
+
+```powershell
+python -m scripts.build_index
+```
+
 默认 `GENERATION_MODE=local_fallback`，即使没有大模型 API key，也可以验证文档入库、检索、重排、引用和 UI 链路。
 
 ## 使用 DeepSeek v4

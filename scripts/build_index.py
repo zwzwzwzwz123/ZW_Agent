@@ -3,8 +3,23 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from src.config import SAMPLE_DOCS_DIR, load_config
-from src.knowledge_base import KnowledgeBase
+try:
+    from scripts.bootstrap import add_project_root_to_path
+except ModuleNotFoundError:
+    from bootstrap import add_project_root_to_path
+
+
+add_project_root_to_path()
+
+try:
+    from src.config import SAMPLE_DOCS_DIR, load_config
+    from src.knowledge_base import KnowledgeBase
+except ModuleNotFoundError as exc:
+    missing = exc.name or str(exc)
+    raise SystemExit(
+        f"缺少依赖模块：{missing}\n"
+        "请确认已激活正确的 conda 环境，并在项目根目录运行：pip install -r requirements.txt"
+    ) from exc
 
 
 def main() -> None:

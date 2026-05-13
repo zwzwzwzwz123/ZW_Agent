@@ -66,6 +66,7 @@ DEEPSEEK_REASONING_EFFORT=high
 - `app.py`：Streamlit Web UI，包含文档上传/建库、问答、索引诊断、检索评估。
 - `eval_retrieval.py`：命令行检索评估入口。
 - `scripts/build_index.py`：命令行建库脚本，不依赖 UI。
+- `scripts/bootstrap.py`：命令行脚本启动辅助，会把项目根目录加入 `sys.path`，避免直接运行脚本时找不到 `src`。
 - `requirements.txt`：Python 依赖列表。
 - `.env.example`：运行配置模板，默认面向 DeepSeek v4。
 - `README.md`：项目说明和快速启动。
