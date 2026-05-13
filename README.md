@@ -1,107 +1,115 @@
-# RAG Agent Lab
+# 智能体 RAG 简历项目
 
-一个面向大模型应用算法岗位的作品集项目。目标不是做一个普通 PDF Chatbot，而是从第一性原理拆解 RAG 与 Agent：先把可解释的检索增强问答系统跑通，再逐步加入 embedding、向量库、rerank、评估、查询改写和工具调用。
+这是一个面向“大模型应用算法工程师”求职展示的端到端 RAG + Agent 项目。项目使用 LangChain 和 Streamlit 构建，重点展示从知识库构建、混合检索、重排、引用生成到可观测 Agent 轨迹的完整工程能力。
 
-## 项目档案与学习文档
+## 快速启动
 
-- [项目成长档案](docs/PROJECT_JOURNAL.md)：记录项目初衷、最终目标、当前进度、技术决策、问题复盘、面试回答和学习路线。
-
-## 当前能力
-
-- 文档录入与本地知识库存储
-- 文本切分 chunking
-- 可解释关键词向量检索
-- 基于检索证据的回答生成
-- 引用片段、命中分数、匹配词展示
-- React Web UI + FastAPI 后端
-- RAG 核心单元测试
-
-## 为什么第一版不用复杂框架
-
-RAG 的本质链路是：
-
-1. 把文档拆成适合检索的片段
-2. 把用户问题变成可检索表示
-3. 找到最相关的证据
-4. 把证据交给生成模型
-5. 约束模型基于证据回答并给出来源
-
-第一版使用可解释的词项向量和余弦相似度，是为了让每一步都能被观察和调试。后续替换成 embedding、向量数据库和 reranker 时，你能清楚知道它们分别解决了什么问题。
-
-## 技术栈
-
-- Backend: Python, FastAPI, Pydantic
-- Frontend: React, TypeScript, Vite
-- Retrieval v0: lexical term vector + cosine similarity
-- Storage v0: local JSON
-
-## 本地运行
-
-### 后端
-
-```bash
-cd backend
+```powershell
 python -m venv .venv
-.venv\Scripts\activate
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+copy .env.example .env
+python scripts\build_index.py
+streamlit run app.py
 ```
 
-如果当前环境暂时装不上 FastAPI，可以先使用标准库开发后备服务：
+默认 `GENERATION_MODE=local_fallback`，即使没有大模型 API key，也可以验证文档入库、检索、重排、引用和 UI 链路。
 
-```bash
-cd backend
-python -m app.dev_server
+## 使用 DeepSeek v4
+
+DeepSeek API 兼容 OpenAI ChatCompletions，所以代码中仍然使用 LangChain 的 `ChatOpenAI` 适配器，但运行时配置为 DeepSeek 的 base URL 和模型名。
+
+在 `.env` 中配置：
+
+```env
+DEEPSEEK_API_KEY=你的 DeepSeek API Key
+LLM_PROVIDER=deepseek
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-v4-flash
+GENERATION_MODE=deepseek
 ```
 
-### 前端
+如果希望使用更强模型，可以把 `LLM_MODEL` 改为 `deepseek-v4-pro`。DeepSeek v4 还支持可选的 thinking 配置，首跑建议关闭，等项目稳定后再打开：
 
-```bash
-cd frontend
-npm install
-npm run dev
+```env
+DEEPSEEK_THINKING=true
+DEEPSEEK_REASONING_EFFORT=high
 ```
 
-打开 `http://127.0.0.1:5173`。
+说明：DeepSeek 官方文档显示旧模型名 `deepseek-chat` 和 `deepseek-reasoner` 会在 2026-07-24 废弃，本项目默认使用 v4 模型名。
 
-## 测试
+## 哪些地方需要 API Key
 
-```bash
-cd backend
-pytest
+- 答案生成 LLM：需要。使用 DeepSeek v4 时需要 `DEEPSEEK_API_KEY`。
+- 联网搜索：可选。启用联网搜索时需要 `TAVILY_API_KEY`。
+- Embedding：默认不需要。本项目默认使用本地 Hugging Face 模型 `BAAI/bge-small-zh-v1.5`，首次运行会下载模型，之后本地计算向量。
+- FAISS 向量库：不需要。FAISS 是本地向量索引。
+- BM25 关键词检索：不需要。完全本地计算。
+- MMR 重排：不需要 API。使用本地 embedding 相似度做相关性和多样性重排。
+- Cross-Encoder 重排：默认不需要 API，但首次使用会下载 `BAAI/bge-reranker-base` 模型，本地运行。
+- Streamlit UI：不需要 API。
+
+如果你之后想把 embedding 也换成云服务，可以扩展 `embedding_factory.py`，但首版简历项目建议先用本地 BGE embedding：稳定、可控、成本低，也方便解释原理。
+
+## 启用联网搜索
+
+联网搜索默认关闭。开启后，Agent 会先查本地知识库；如果本地证据弱，或者问题包含“最新、今天、实时、新闻、价格、版本”等时效性关键词，就会调用 Tavily 搜索补充网页证据。
+
+在 `.env` 中配置：
+
+```env
+WEB_SEARCH_ENABLED=true
+WEB_SEARCH_PROVIDER=tavily
+TAVILY_API_KEY=你的 Tavily API Key
+WEB_SEARCH_MAX_RESULTS=5
+WEB_SEARCH_DEPTH=basic
 ```
 
-## 学习路线
+当前实现不会把网页结果自动写入长期知识库，而是作为当前问题的临时补充上下文使用。这样更安全，也更容易在 UI 中解释来源。
 
-### Phase 1: RAG 基础闭环
+## LLM Router
 
-- chunk size 和 overlap 对召回的影响
-- 关键词检索、向量检索、混合检索的差异
-- top-k、相似度分数、引用来源如何影响回答质量
+联网决策采用“规则兜底 + LLM Router”的混合策略：
 
-### Phase 2: 语义检索升级
+- 明确需要时效信息的问题，规则强制联网。
+- 本地证据置信度很低时，规则建议联网。
+- 其他模糊情况，由 DeepSeek v4 判断是否需要联网、搜索什么 query、偏好什么来源。
+- Router 的结构化决策会展示在 Agent 执行轨迹和诊断 JSON 中。
 
-- 接入 embedding model
-- 使用 pgvector / Chroma / FAISS
-- 对比 lexical retrieval 与 semantic retrieval
-- 加入 query rewrite 和 rerank
+配置项：
 
-### Phase 3: RAG 评估与优化
+```env
+ROUTER_MODE=hybrid
+ROUTER_FORCE_WEB_ON_FRESHNESS=true
+```
 
-- 构造 benchmark question set
-- 评估 recall、faithfulness、answer relevance
-- 记录失败案例并归因：切分失败、检索失败、生成失败
-- 做 ablation study：不同 chunk size、top-k、reranker 的效果对比
+如果想节省 LLM 调用成本，可以改成 `ROUTER_MODE=rules`，此时只用规则和关键词路由。
 
-### Phase 4: Agent 扩展
+## 项目亮点
 
-- 把检索、总结、评估、报告生成封装成 tools
-- 加入 planner，让 Agent 决定调用哪些工具
-- 加入 reflection，检查回答是否被证据支持
-- 支持多步骤任务：根据岗位 JD 生成技能差距分析和学习计划
+- 基于 LangChain 的文档加载、切分、Embedding、FAISS 向量库和 Prompt 链路。
+- 混合检索：向量语义检索 + BM25 关键词检索。
+- 默认启用真实 BGE Cross-Encoder reranker，MMR 仅作为网络或性能受限时的降级选项。
+- Agent 式工具编排：问题意图分析、知识库检查、检索重排、置信度估计。
+- UI 中展示引用、检索分数、重排分数、Agent 执行轨迹和诊断 JSON。
+- 支持多轮对话：历史对话会参与追问改写、检索和最终回答生成。
+- 本地证据不足或问题需要时效信息时，可自动调用联网搜索补充证据。
+- 内置检索冒烟评估，后续可扩展成领域评测集。
+- `progress.md` 持续记录项目状态，便于新开对话后继续开发。
 
-## 简历亮点表达
+## 推荐运行顺序
 
-- 从零实现并迭代一个可解释 RAG 系统，覆盖文档切分、检索、生成、引用溯源与 Web 可视化
-- 设计 RAG 评估流程，对 chunk size、top-k、rerank 等策略进行对比实验
-- 扩展 Agent 工具调用链路，使系统支持多步骤学习规划与证据一致性检查
+1. 使用 `local_fallback` 和示例文档跑通完整流程。
+2. 配置 `DEEPSEEK_API_KEY`，把 `GENERATION_MODE` 改成 `deepseek`。
+3. 保持 `RERANKER_MODE=cross_encoder` 演示真实 rerank；如果本地下载模型失败，再临时降级为 `mmr`。
+4. 替换为你真正想展示的领域知识库。
+5. 增加 20 到 50 条带标准来源的检索评估问题。
+6. 调整 chunk 大小、混合检索权重、rerank 模式和 prompt。
+7. 增加 query rewrite、多路召回、LangGraph 工作流或线上监控。
+
+## 当前注意事项
+
+- 当前仓库已经包含中文示例知识库，可直接演示。
+- 如果依赖安装失败，优先检查 pip 源、代理和 Hugging Face 模型下载网络。
+- `local_fallback` 不是最终质量路径，它用于保证没有 API key 时仍能验证完整工程链路。
+- 当前代码和文档已统一为 UTF-8 中文文本，并通过 Python 静态编译检查。

@@ -1,8 +1,9 @@
-.venv/
+.env
 __pycache__/
+*.pyc
+.streamlit/
+storage/*
+!storage/.gitkeep
 .pytest_cache/
-node_modules/
-.npm-cache/
-dist/
-*.log
-backend/app/data/store.json
+.venv/
+venv/
